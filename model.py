@@ -136,5 +136,154 @@ class ResidualConnection(nn.Module):
 
     def forward(self, x, sublayer):
         # norm & add better than add & norm
-        # TODO: unclear if sublayer is previous layer or aage ki
         return x + self.dropout(sublayer(self.norm(x)))        
+    
+class EncoderBlock(nn.Module):
+
+    def __init__(self, self_attention: MultiHeadAttention, ffn: FFN, dropout: float) -> None:
+        super().__init__()
+        self.self_attention_block = self_attention
+        self.ffn = ffn
+        self.res_con = nn.ModuleList([ResidualConnection(dropout) for _ in range(2)])
+
+    def forward(self, x, src_mask):
+        x = self.res_con[0](x, lambda x: self.self_attention_block(x, x, x, src_mask))
+        x = self.res_con[1](x, self.ffn)
+        return x
+    
+class Encoder(nn.Module):
+
+    def __init__(self, layers: nn.ModuleList) -> None:
+        super().__init__()
+        self.layers = layers
+        self.norm = LayerNorm()
+
+    def forward(self, x, mask):
+
+        for layer in self.layers:
+            x = layer(x)
+        return self.norm(x)    
+
+
+class DecoderBlock(nn.Module):
+
+    def __init__(self, self_attention: MultiHeadAttention, cross_attention: MultiHeadAttention, 
+                 ffn: FFN, dropout: float) -> None:
+        super().__init__()
+        self.self_attention = self_attention
+        self.cross_attention = cross_attention
+        self.ffn = ffn
+        self.res_con = nn.ModuleList([ResidualConnection(dropout) for _ in range(3)])
+
+    def forward(self, x, encoder_output, src_mask, tgt_mask):
+        x = self.res_con[0](x, lambda x: self.self_attention(x, x, x, tgt_mask))
+        x = self.res_con[1](x, lambda x: self.cross_attention(x, encoder_output,
+                                                              encoder_output, src_mask))
+        x = self.res_con[2](x, self.ffn)
+
+        return x            
+
+class Decoder(nn.Module):
+    
+    def __init__(self, layers: nn.ModuleList) -> None:
+        super().__init__()
+        self.layers = layers
+        self.norm = LayerNorm()
+
+    def forward(self, x, enc_outputs, src_mask ,tgt_mask):
+        # each layer is a decoder block
+        for layer in self.layers:
+            x = layer(x, enc_outputs, src_mask, tgt_mask)
+        return self.norm(x)
+        
+class FinalFFN(nn.Module):
+
+    def __init__(self, d_model: int, vocab_size: int) -> None:
+        super().__init__()
+        self.lin = nn.Linear(d_model, vocab_size)
+
+    def forward(self, x):
+         return torch.log_softmax(self.lin(x), dim = -1)
+
+class Transformer(nn.Module):
+
+    def __init__(self, enc: Encoder, dec:Decoder, inp: InputEmbedding,
+                  tgt: InputEmbedding, inp_pos: PosEmbedding, tgt_pos: PosEmbedding,
+                  ffn: FinalFFN) -> None:
+        super().__init__()
+        # emebeddings are all layers and not actual embeddings
+        self.enc = enc
+        self.dec = dec
+        self.inp_emb = inp
+        self.tgt_embed = tgt
+        self.inp_pos = inp_pos
+        self.tgt_pos = tgt_pos
+        self.ffn = ffn
+
+    def encode(self, x, src_mask):
+        x = self.inp_emb(x)
+        x = self.inp_pos(x)
+        return self.enc(x, src_mask)
+
+    def decode(self, x, enc_output, src_mask, tgt_mask):
+        x = self.tgt_embed(x)
+        x = self.tgt_pos(x)
+        return self.dec(x, enc_output, src_mask, tgt_mask)
+
+    def project(self, x):
+        return self.ffn(x) 
+    
+
+def build_tf(inp_vocab_size: int, tgt_vocab_size: int, max_inp_len: int, 
+             max_tgt_len:int, d_model: int = 512, hidden: int = 2048, dropout: float = 0.1,
+             layers: int = 6, heads: int = 8):
+    
+    # embedding layers
+    src_emb = InputEmbedding(d_model, inp_vocab_size)
+    tgt_emb = InputEmbedding(d_model, tgt_vocab_size)
+
+    # pos enc layers
+    src_pos = PosEmbedding(d_model, max_inp_len, dropout)
+    tgt_pos = PosEmbedding(d_model, max_tgt_len, dropout)
+
+    # encoder layers
+    encoder_blocks = []
+    for _ in range(layers):
+        self_att = MultiHeadAttention(d_model, heads, dropout)
+        ffn = FFN(d_model, hidden, dropout)
+        enc_block = EncoderBlock(self_att, ffn, dropout)
+        encoder_blocks.append(enc_block)
+
+    # encoder
+    enc = Encoder(nn.ModuleList(encoder_blocks))
+
+    # decoder layers
+    dec_blocks = []
+    for _ in range(layers):
+        self_att = MultiHeadAttention(d_model, heads, dropout)
+        ffn = FFN(d_model, hidden, dropout)
+        cross_att = MultiHeadAttention(d_model, heads, dropout)
+        dec_block = DecoderBlock(self_att, cross_att, ffn, dropout)
+        dec_blocks.append(dec_block)
+
+    # decoder
+    dec = Decoder(nn.ModuleList(dec_blocks))
+
+    #projection layer
+    proj = FinalFFN(d_model, tgt_vocab_size)
+
+    # Transformer
+    transformer = Transformer(enc, dec, src_emb, tgt_emb, src_pos, tgt_pos, proj)
+
+    # intialize parameters with xavier uniform initialization
+    # TODO: lookup wtf is that
+    for p in transformer.parameters():
+        if p.dim() > 1:
+            nn.init.xavier_uniform_(p)
+
+    return transformer                
+
+
+
+
+
