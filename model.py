@@ -45,7 +45,7 @@ class PosEmbedding(nn.Module):
 class LayerNorm(nn.Module):
     
     def __init__(self, eps: float = 10 ** -6) -> None:
-        super.__init__()
+        super().__init__()
         self.eps = eps
         self.alpha = nn.Parameter(torch.ones(1)) 
         self.bias = nn.Parameter(torch.ones(1))
@@ -60,7 +60,7 @@ class LayerNorm(nn.Module):
 class FFN(nn.Module):
 
     def __init__(self, d_model:int, hidden:int, dropout: float)->None:
-        super.__init__()
+        super().__init__()
         self.lin1 = nn.Linear(d_model, hidden)
         self.lin2 = nn.Linear(hidden, d_model)
         self.dropout = nn.Dropout(dropout)
@@ -74,7 +74,7 @@ class MultiHeadAttention(nn.Module):
 
     def __init__(self, d_model: int, h: int, dropout:int)->None:
 
-        super.__init__()
+        super().__init__()
         self.d_model = d_model
         self.heads = h
         self.dropout = nn.Dropout(dropout)
@@ -91,12 +91,12 @@ class MultiHeadAttention(nn.Module):
 
     @staticmethod
     def Attention(q, k, v, mask:None, dropout:None):
-        d_k = q.shape(-1)
+        d_k = q.shape[-1]
 
         # (b x h x s x d) @ (b x h x d x s) = (b x h x s x s)
         attention_scores = (q @ k.transpose(-2,-1)) / math.sqrt(d_k)
         
-        if mask:
+        if mask is not None:
             attention_scores.masked_fill_(mask == 0, -1e9)
         attention_scores = attention_scores.softmax(dim = -1)
 
@@ -122,8 +122,7 @@ class MultiHeadAttention(nn.Module):
         x, attention_scores = MultiHeadAttention.Attention(query, key, value, mask, self.dropout)
 
         # (b x h x s x d) -> (b x s x h x d) -> (b x s x d_model)
-        x = x.transpose(1,2)
-        x = x.view(x.shape[0], x.shape[1], self.d_model)
+        x = x.transpose(1,2).contiguous().view(x.shape[0], -1, self.d_model)
 
         return self.w_o(x)
 
@@ -161,7 +160,7 @@ class Encoder(nn.Module):
     def forward(self, x, mask):
 
         for layer in self.layers:
-            x = layer(x)
+            x = layer(x, mask)
         return self.norm(x)    
 
 

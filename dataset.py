@@ -13,10 +13,10 @@ class BilingualTranslationDataset(Dataset):
         self.src_lang = src_lang
         self.tgt_lang = tgt_lang
         self.seq_len = seq_len
-
-        self.start = torch.Tensor([src_tokenizer.token_to_id(['SOS'])], dtype=torch.int64)
-        self.eos = torch.Tensor([src_tokenizer.token_to_id(['EOS'])], dtype=torch.int64)
-        self.pad = torch.Tensor([src_tokenizer.token_to_id(['PAD'])], dtype=torch.int64)
+  
+        self.start = torch.tensor([src_tokenizer.token_to_id("[SOS]")], dtype=torch.int64)
+        self.eos = torch.tensor([src_tokenizer.token_to_id('[EOS]')], dtype=torch.int64)
+        self.pad = torch.tensor([src_tokenizer.token_to_id('[PAD]')], dtype=torch.int64)
 
     def __len__(self):
         return len(self.ds)
@@ -38,42 +38,42 @@ class BilingualTranslationDataset(Dataset):
             return ValueError('Sentence too long')
         
         # START + tokens + EOS + pad
-        enc_input = torch.cat(
+        enc_inp = torch.cat(
             [
                 self.start,
                 torch.tensor(enc_input, dtype=torch.int64),
                 self.eos,
-                torch.tensor([self.pad] * enc_num_pad, dtype=int.64)
+                torch.tensor([self.pad] * enc_num_pad, dtype=torch.int64)
             ]
         )
 
-        # tokens + EOS + pad
-        dec_input = torch.cat(
-            [
-                torch.tensor(dec_input, dtype=torch.int64),
-                self.eos,
-                torch.tensor([self.pad] * dec_num_pad, dtype=int.64)
-            ]
-        )
-
-        # START + tokens + pad (ground truth/actual sentence)
-        target = torch.cat(
+        # start + tokens + pad
+        dec_inp = torch.cat(
             [
                 self.start,
                 torch.tensor(dec_input, dtype=torch.int64),
-                torch.tensor([self.pad] * dec_num_pad, dtype=int.64)
+                torch.tensor([self.pad] * dec_num_pad, dtype=torch.int64)
             ]
         )
 
-        assert enc_input.size(0) == self.seq_len
-        assert dec_input.size(0) == self.seq_len
-        assert target.size(0) == self.seq_len
+        # tokens + eos + pad (ground truth/actual sentence)
+        target = torch.cat(
+            [
+                torch.tensor(dec_input, dtype=torch.int64),
+                self.eos,
+                torch.tensor([self.pad] * dec_num_pad, dtype=torch.int64)
+            ]
+        )
+        
+        assert enc_inp.size(0) == self.seq_len, f'{enc_inp.size(0), self.seq_len}'
+        assert dec_inp.size(0) == self.seq_len, f'{dec_inp.size(0), self.seq_len}'
+        assert target.size(0) == self.seq_len, f'{target.size(0),  self.seq_len}'
 
         return {
-            "enc_input": enc_input,
-            "dec_input": dec_input,
-            "enc_mask": (enc_input != self.pad).unsqueeze(0).unsqueeze(0).int(), # (1, 1, seq_len)
-            "dec_mask": (dec_input != self.pad).unsqueeze(0).unsqueeze(0).int() & causal_mask(dec_input.size(0)),
+            "enc_input": enc_inp,
+            "dec_input": dec_inp,
+            "enc_mask": (enc_inp != self.pad).unsqueeze(0).unsqueeze(0).int(), # (1, 1, seq_len)
+            "dec_mask": (dec_inp != self.pad).unsqueeze(0).unsqueeze(0).int() & causal_mask(dec_inp.size(0)),
             "label": target,
             "src_text": src,
             "tgt_text": tgt  
