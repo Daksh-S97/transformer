@@ -152,6 +152,7 @@ def validate(model, validation_ds, src_tokenizer, tgt_tokenizer, seq_len, device
             if count == num_examples:
                 break
 
+
 def train_model(config, val_only):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("Device: ", device)

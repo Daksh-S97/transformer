@@ -105,7 +105,7 @@ class MultiHeadAttention(nn.Module):
 
         # (x, att_scores)
         # x = (b x h x s x s) @ (b x h x s x d) = (b x h x s x d) 
-        return (attention_scores @ v, attention_scores)    
+        return (attention_scores @ v), attention_scores    
 
     def forward(self, q, k, v, mask):
         q_prime = self.w_q(q)
@@ -119,7 +119,7 @@ class MultiHeadAttention(nn.Module):
         key = k_prime.view(k_prime.shape[0], k_prime.shape[1], self.heads, self.d_k).transpose(1,2)
         value = v_prime.view(v_prime.shape[0], v_prime.shape[1], self.heads, self.d_k).transpose(1,2)
 
-        x, attention_scores = MultiHeadAttention.Attention(query, key, value, mask, self.dropout)
+        x, self.attention_scores = MultiHeadAttention.Attention(query, key, value, mask, self.dropout)
 
         # (b x h x s x d) -> (b x s x h x d) -> (b x s x d_model)
         x = x.transpose(1,2).contiguous().view(x.shape[0], -1, self.d_model)
