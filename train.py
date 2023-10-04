@@ -83,7 +83,76 @@ def get_model(config, src_vocab_len, tgt_vocab_len):
     model = build_tf(src_vocab_len, tgt_vocab_len, config['seq_len'], config['seq_len'], config['d_model'])
     return model
 
-def train_model(config):
+
+def greedy_decode(model, src_tokenizer, tgt_tokenizer, enc_input, enc_mask, seq_len, device):
+    sos = src_tokenizer.token_to_id("[SOS]")
+    eos = src_tokenizer.token_to_id("[EOS]")
+
+    # Precompute encoder output
+    enc_out = model.encode(enc_input, enc_mask)
+
+    # Initialize decoder input with SOS token
+    dec_inp = torch.empty(1,1).fill_(sos).type_as(enc_input).to(device) # (B x S)
+
+    while True:
+        if dec_inp.size(1) == seq_len:
+            break
+        # decoder mask
+        # TODO: why do we need a causal mask here?
+        dec_mask = causal_mask(dec_inp.size(1)).type_as(enc_mask).to(device)
+        out = model.decode(dec_inp, enc_out, enc_mask, dec_mask)
+        probs = model.project(out)
+        # _, next_word = torch.max(probs[:, -1][0])
+        next_word = torch.argmax(probs[:, -1])
+        dec_inp = torch.cat((dec_inp, torch.empty(1,1).fill_(next_word).type_as(dec_inp).to(device)), dim=1)
+
+        if next_word == eos:
+            break
+
+    return dec_inp.squeeze(0) # remove batch dimension
+    
+def validate(model, validation_ds, src_tokenizer, tgt_tokenizer, seq_len, device, print_msg, global_state, writer, num_examples=2):
+    model.eval()
+    count  = 0
+    
+    # for TorchMetrics
+    # source_txt = []
+    # predicted = []
+    # expected = []
+
+    # size of control window
+    console_width = 80
+
+    with torch.no_grad():
+        # batch_size = 1 for validation
+        for batch in validation_ds:
+            count += 1
+            enc_input = batch['enc_input'].to(device)
+            enc_mask = batch['enc_mask'].to(device)
+
+            assert enc_input.size(0) == 1, "Batch size must be 1 for validation"
+
+            out = greedy_decode(model, src_tokenizer, tgt_tokenizer, enc_input, enc_mask, seq_len, device)
+            src_txt = batch["src_text"][0]
+            tgt_txt = batch["tgt_text"][0]
+            predicted = tgt_tokenizer.decode(out.detach().cpu().numpy())
+
+            # Print to console; do not use regular print as it interferes with tqdm
+            if print_msg:
+                print_msg('-'*console_width)
+                print_msg(f'SOURCE: {src_txt}')
+                print_msg(f'TARGET: {tgt_txt}')
+                print_msg(f'PREDICTED: {predicted}')
+            else:
+                print(f'SOURCE: {src_txt}')
+                print(f'TARGET: {tgt_txt}')
+                print(f'PREDICTED: {predicted}')    
+                print('-'*console_width)
+
+            if count == num_examples:
+                break
+
+def train_model(config, val_only):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("Device: ", device)
     Path(config['model_folder']).mkdir(parents=True, exist_ok=True)
@@ -113,17 +182,25 @@ def train_model(config):
     loss_fn = nn.CrossEntropyLoss(ignore_index=src_tokenizer.token_to_id('[PAD]'), label_smoothing=0.1).to(device)
     # label smoothing (prevents overfitting): takes probability of highest and decreases it by the specified value, dsitributing this value over the rest of the classes
 
+    if val_only:
+        f_name = 'weights/tf_19.pt'
+        state = torch.load(f_name)
+        model.load_state_dict(state['model_state_dict'])
+        validate(model, val_dataloader, src_tokenizer, tgt_tokenizer, config['seq_len'], device, None, global_step, writer)
+        return 
+    
     # training loop 
     for ep in range(epoch, config['num_epochs']):
         torch.cuda.empty_cache()
-        model.train()
+        
         batch_iterator = tqdm(train_dataloader, desc=f'Epoch: {ep}')
         for batch in batch_iterator:
+            model.train()
             enc_input = batch['enc_input'].to(device) # (B x S)
             dec_input = batch['dec_input'].to(device) # (B x S)
             src_mask = batch['enc_mask'].to(device)
             tgt_mask = batch['dec_mask'].to(device)
-
+    
             enc_out = model.encode(enc_input, src_mask) # (b x s x d)
             dec_out = model.decode(dec_input, enc_out, src_mask, tgt_mask) # (b x s x d)
             out = model.project(dec_out) # (b x s x tgt_vocab_size)
@@ -145,6 +222,9 @@ def train_model(config):
 
             global_step += 1 # for tensorboard
 
+        # validation    
+        validate(model, val_dataloader, src_tokenizer, tgt_tokenizer, config['seq_len'], device, lambda msg: batch_iterator.write(msg), global_step, writer)
+
         # Save model for this epoch
         model_filename = get_weights_file(config, str(ep))
         torch.save({
@@ -155,10 +235,12 @@ def train_model(config):
         }, model_filename)
 
 
+
 if __name__ == '__main__':
     # warnings.filterwarnings('ignore')
     config = get_config()
-    train_model(config)
+    val_only = True
+    train_model(config, val_only)
 
             
 
