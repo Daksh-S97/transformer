@@ -240,7 +240,7 @@ def train_model(config, val_only):
 if __name__ == '__main__':
     # warnings.filterwarnings('ignore')
     config = get_config()
-    val_only = True
+    val_only = False
     train_model(config, val_only)
 
             
