@@ -33,7 +33,6 @@ class BilingualTranslationDataset(Dataset):
         enc_num_pad = self.seq_len - len(enc_input) - 2
         dec_num_pad = self.seq_len - len(dec_input) - 1
 
-        # TODO: implement truncation
         if enc_num_pad < 0 or dec_num_pad < 0:
             return ValueError('Sentence too long')
         

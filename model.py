@@ -52,9 +52,7 @@ class LayerNorm(nn.Module):
     
     def forward(self, x):
         mean = x.mean(dim = -1, keepdim=True)
-        std = x.std(dim = -1, keepdim=True)
-
-        # TODO: check if formula correct    
+        std = x.std(dim = -1, keepdim=True)    
         return self.alpha * (x-mean) / (std + self.eps) + self.bias
     
 class FFN(nn.Module):
@@ -275,7 +273,7 @@ def build_tf(inp_vocab_size: int, tgt_vocab_size: int, max_inp_len: int,
     transformer = Transformer(enc, dec, src_emb, tgt_emb, src_pos, tgt_pos, proj)
 
     # intialize parameters with xavier uniform initialization
-    # TODO: lookup wtf is that
+    # ensures variance of activations is same across every layer
     for p in transformer.parameters():
         if p.dim() > 1:
             nn.init.xavier_uniform_(p)

@@ -98,7 +98,6 @@ def greedy_decode(model, src_tokenizer, tgt_tokenizer, enc_input, enc_mask, seq_
         if dec_inp.size(1) == seq_len:
             break
         # decoder mask
-        # TODO: why do we need a causal mask here?
         dec_mask = causal_mask(dec_inp.size(1)).type_as(enc_mask).to(device)
         out = model.decode(dec_inp, enc_out, enc_mask, dec_mask)
         probs = model.project(out)
